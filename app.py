@@ -10,7 +10,7 @@ from doctr.models import ocr_predictor
 model = ocr_predictor(pretrained=True)
 
 st.set_page_config(page_title="OCR App", layout="wide")
-st.title("📝 Multi-Image OCR & Table Extractor")
+st.title("OCR ")
 
 # Session state for OCR
 if "ocr_lines" not in st.session_state:
@@ -30,7 +30,7 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-if uploaded_files and st.button("🔄 Convert (Step 1: OCR to Text)"):
+if uploaded_files and st.button(" Convert Step 1"):
     st.session_state.ocr_lines = []
     ocr_output = []
 
@@ -63,7 +63,7 @@ if uploaded_files and st.button("🔄 Convert (Step 1: OCR to Text)"):
         ocr_output.append((uploaded_file.name, ocr_text))
         st.session_state.ocr_lines.extend(lines)
 
-        st.subheader(f"📄 OCR Result for: {uploaded_file.name}")
+        st.subheader(f" OCR Result for: {uploaded_file.name}")
         st.text_area("Extracted Text:", ocr_text, height=200)
 
     # Combine and allow download of clean OCR output
