@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import tempfile
 import re
@@ -7,18 +8,19 @@ import pandas as pd
 from doctr.io import DocumentFile
 from doctr.models import ocr_predictor
 import io
-import os
-from functools import lru_cache
 
 app = FastAPI(title="OCR to Excel API")
+# Allow frontend origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 👈 Allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
+)
 
-@lru_cache()
-def get_model():
-    return ocr_predictor(pretrained=True)
-
-@app.get("/")
-def health_check():
-    return {"status": "ok"}
+# Load the OCR model once
+model = ocr_predictor(pretrained=True)
 
 def fix_misaligned_reg_no(reg_no: str) -> str:
     if len(reg_no) == 16 and reg_no.startswith('1') and reg_no[1] == '2':
@@ -28,7 +30,6 @@ def fix_misaligned_reg_no(reg_no: str) -> str:
 @app.post("/ocr-to-excel/")
 async def ocr_to_excel(files: list[UploadFile] = File(...)):
     ocr_lines = []
-    model = get_model()
 
     for file in files:
         try:
@@ -39,7 +40,6 @@ async def ocr_to_excel(files: list[UploadFile] = File(...)):
 
             image = cv2.imread(tmp_path)
             if image is None:
-                os.remove(tmp_path)
                 continue
 
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -55,9 +55,6 @@ async def ocr_to_excel(files: list[UploadFile] = File(...)):
                 for line in block.lines:
                     text = ' '.join(word.value for word in line.words)
                     ocr_lines.append(text)
-
-            os.remove(tmp_path)
-            os.remove(preprocessed_path)
 
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": f"Error processing file: {file.filename}. {str(e)}"})
