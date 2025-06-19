@@ -1,3 +1,4 @@
+import base64
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,7 +39,30 @@ app.add_middleware(
 
 POPPLER_PATH = r"C:\Users\tarun\Downloads\Release-24.08.0-0\poppler-24.08.0\Library\bin" if os.name == 'nt' else None
 model = ocr_predictor(pretrained=True)
+@app.post("/convert-pdf/")
+async def convert_pdf(file: UploadFile = File(...)):
+    try:
+        pdf_bytes = await file.read()
 
+        if len(pdf_bytes) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail="❌ Uploaded file exceeds the 15MB limit."
+            )
+
+        images = convert_from_bytes(pdf_bytes, dpi=300, poppler_path=POPPLER_PATH)
+        base64_pages = []
+
+        for img in images:
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG")
+            encoded = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            base64_pages.append(encoded)
+
+        return JSONResponse(content={"pages": base64_pages})
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.post("/ocr-to-excel/")
 async def ocr_to_excel(files: list[UploadFile] = File(...)):
