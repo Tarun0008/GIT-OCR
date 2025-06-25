@@ -1,4 +1,5 @@
 import base64
+import csv
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,7 +40,58 @@ app.add_middleware(
 
 POPPLER_PATH = r"C:\Users\tarun\Downloads\Release-24.08.0-0\poppler-24.08.0\Library\bin" if os.name == 'nt' else None
 model = ocr_predictor(pretrained=True)
-@app.post("/convert-pdf/")
+
+@app.post("/grades-summary/")
+async def grades_summary(file: UploadFile = File(...)):
+    try:
+        filename = file.filename.lower()
+        extension = filename.split('.')[-1]
+
+        if extension not in ['csv', 'xlsx', 'xls']:
+            raise HTTPException(status_code=400, detail="Unsupported file format. Please upload a .csv or .xlsx file.")
+
+        file_bytes = await file.read()
+
+        # Read CSV or Excel accordingly
+        if extension == "csv":
+            try:
+                content = file_bytes.decode("utf-8")
+                df = pd.read_csv(io.StringIO(content))
+            except UnicodeDecodeError:
+                raise HTTPException(status_code=400, detail="CSV file is not UTF-8 encoded.")
+        else:
+            df = pd.read_excel(io.BytesIO(file_bytes))
+
+        # Basic validation
+        if df.shape[1] < 2:
+            raise HTTPException(status_code=400, detail="Invalid file format. Expected at least 2 columns.")
+
+        headers = df.columns.tolist()[1:]  # Skip "Register No." or first column
+        grade_types = ['O', 'A+', 'A', 'B+', 'B', 'C', 'U']
+        summary = {subject: {grade: 0 for grade in grade_types} for subject in headers}
+
+        for _, row in df.iterrows():
+            for i, subject in enumerate(headers):
+                grade = str(row[subject]).strip().upper()
+                if grade in summary[subject]:
+                    summary[subject][grade] += 1
+
+        # Prepare chart data
+        chart_data = []
+        for subject in headers:
+            entry = {"subject": subject}
+            entry.update(summary[subject])
+            chart_data.append(entry)
+
+        return JSONResponse(content={
+            "grade_counts": summary,
+            "chart_data": chart_data,
+            "subjects": headers,
+            "grade_types": grade_types
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))@app.post("/convert-pdf/")
 async def convert_pdf(file: UploadFile = File(...)):
     try:
         pdf_bytes = await file.read()
