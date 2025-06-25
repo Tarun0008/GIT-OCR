@@ -91,7 +91,8 @@ async def grades_summary(file: UploadFile = File(...)):
         })
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))@app.post("/convert-pdf/")
+        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/convert-pdf/")
 async def convert_pdf(file: UploadFile = File(...)):
     try:
         pdf_bytes = await file.read()
@@ -116,6 +117,85 @@ async def convert_pdf(file: UploadFile = File(...)):
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+
+
+@app.post("/excel-grades/")
+async def extract_excel_grades(file: UploadFile = File(...)):
+    try:
+        filename = file.filename.lower()
+        if not filename.endswith((".xlsx", ".xls")):
+            raise HTTPException(status_code=400, detail="Only Excel files (.xlsx, .xls) are supported.")
+
+        content = await file.read()
+        df_raw = pd.read_excel(io.BytesIO(content), header=None, dtype=str)
+
+        if df_raw.empty or df_raw.shape[1] < 2:
+            raise HTTPException(status_code=400, detail="Invalid Excel structure.")
+
+        # Step 1: Detect header row
+        header_row_index = None
+        register_col_index = None
+        for idx, row in df_raw.iterrows():
+            for col_idx, val in enumerate(row):
+                if str(val).strip().lower().startswith("register"):
+                    header_row_index = idx
+                    register_col_index = col_idx
+                    break
+            if header_row_index is not None:
+                break
+
+        if header_row_index is None:
+            raise HTTPException(status_code=400, detail="Couldn't detect header row with 'Register No.'")
+
+        # ✅ Extract metadata above header row
+        metadata_lines = []
+        for i in range(header_row_index):
+            row_values = df_raw.iloc[i].dropna().astype(str)
+            combined = " | ".join([v.strip() for v in row_values if v.strip()])
+            if combined:
+                metadata_lines.append(combined)
+
+        metadata = " ".join(metadata_lines).strip()
+
+        # Step 2: Read again from that header row
+        df = pd.read_excel(io.BytesIO(content), header=header_row_index, dtype=str)
+
+        def clean_text(text: str) -> str:
+            return (
+                str(text)
+                .encode('ascii', 'ignore').decode()
+                .replace('\r', '')
+                .replace('\n', '')
+                .replace('\xa0', '')
+                .replace('_x000D_', '')
+                .replace('_x000d_', '')
+                .strip()
+            )
+
+        df.columns = [clean_text(col) for col in df.columns]
+
+        col_names = df.columns.tolist()
+        first_col = col_names[register_col_index]
+        subject_codes = col_names[register_col_index + 1:]
+
+        df = df.applymap(clean_text)
+
+        results = []
+        for _, row in df.iterrows():
+            register_no = row[first_col]
+            if not register_no:
+                continue
+            grades = {clean_text(subject): row[subject] for subject in subject_codes}
+            results.append({"register_no": register_no, "grades": grades})
+
+        return JSONResponse(content={
+            "metadata": metadata,
+            "subjects": [clean_text(s) for s in subject_codes],
+            "results": results
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 @app.post("/ocr-to-excel/")
 async def ocr_to_excel(files: list[UploadFile] = File(...)):
     ocr_lines = []
